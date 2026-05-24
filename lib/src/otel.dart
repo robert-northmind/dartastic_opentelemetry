@@ -463,6 +463,7 @@ class OTel {
   /// @param name Optional name of a specific TracerProvider
   /// @return The TracerProvider instance
   static TracerProvider tracerProvider({String? name}) {
+    _getAndCacheOtelFactory();
     final tracerProvider = OTelAPI.tracerProvider(name) as TracerProvider;
     // Ensure the resource is properly set
     if (tracerProvider.resource == null && defaultResource != null) {
@@ -493,6 +494,7 @@ class OTel {
   /// @param name Optional name of a specific MeterProvider
   /// @return The MeterProvider instance
   static MeterProvider meterProvider({String? name}) {
+    _getAndCacheOtelFactory();
     final meterProvider = OTelAPI.meterProvider(name) as MeterProvider;
     meterProvider.resource ??= defaultResource;
     return meterProvider;
@@ -519,6 +521,7 @@ class OTel {
     Resource? resource,
     Sampler? sampler,
   }) {
+    _getAndCacheOtelFactory();
     final sdkTracerProvider = OTelAPI.addTracerProvider(name) as TracerProvider;
     sdkTracerProvider.resource = resource ?? defaultResource;
     sdkTracerProvider.sampler = sampler ?? _defaultSampler;
@@ -960,10 +963,17 @@ class OTel {
     if (_otelFactory != null) {
       return _otelFactory!;
     }
-    if (OTelFactory.otelFactory == null) {
-      throw StateError('initialize() must be called first.');
+    final installed = OTelFactory.otelFactory;
+    if (installed is! OTelSDKFactory) {
+      throw StateError(installed == null
+          ? 'OTel.initialize() must be called first.'
+          : 'OTel.initialize() must be called first. The OpenTelemetry API '
+              'auto-installed a no-op factory (${installed.runtimeType}) '
+              'because an API call ran before the SDK was initialized. '
+              'Call OTel.reset() and then OTel.initialize() before using '
+              'the SDK accessors on OTel.');
     }
-    return _otelFactory = OTelFactory.otelFactory! as OTelSDKFactory;
+    return _otelFactory = installed;
   }
 
   /// Initializes logging based on environment variables.
