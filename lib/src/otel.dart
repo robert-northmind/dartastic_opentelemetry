@@ -219,10 +219,11 @@ class OTel {
         resourceAttributes = OTel.attributesFromMap(envResourceAttrs);
       }
     }
-    if (OTelFactory.otelFactory != null) {
-      throw StateError(
-        'OTelAPI can only be initialized once. If you need multiple endpoints or service names or versions create a named TracerProvider',
-      );
+    final installedFactory = OTelFactory.otelFactory;
+    if (installedFactory != null) {
+      throw StateError(installedFactory is OTelSDKFactory
+          ? 'OTel.initialize() can only be called once. If you need multiple endpoints or service names or versions create a named TracerProvider.'
+          : _factoryInstalledBeforeInitializeMessage(installedFactory));
     }
 
     if (endpoint.isEmpty) {
@@ -571,6 +572,7 @@ class OTel {
   /// @param name Optional name of a specific TracerProvider
   /// @return The TracerProvider instance
   static TracerProvider tracerProvider({String? name}) {
+    _getAndCacheOtelFactory();
     final tracerProvider = OTelAPI.tracerProvider(name) as TracerProvider;
     // Ensure the resource is properly set
     if (tracerProvider.resource == null && defaultResource != null) {
@@ -604,6 +606,7 @@ class OTel {
   /// @param name Optional name of a specific MeterProvider
   /// @return The MeterProvider instance
   static MeterProvider meterProvider({String? name}) {
+    _getAndCacheOtelFactory();
     final meterProvider = OTelAPI.meterProvider(name) as MeterProvider;
     meterProvider.resource ??= defaultResource;
     return meterProvider;
@@ -630,6 +633,7 @@ class OTel {
     Resource? resource,
     Sampler? sampler,
   }) {
+    _getAndCacheOtelFactory();
     final sdkTracerProvider = OTelAPI.addTracerProvider(name) as TracerProvider;
     sdkTracerProvider.resource = resource ?? defaultResource;
     sdkTracerProvider.sampler = sampler ?? _defaultSampler;
@@ -736,6 +740,7 @@ class OTel {
   /// @param name Optional name of a specific LoggerProvider
   /// @return The LoggerProvider instance
   static LoggerProvider loggerProvider({String? name}) {
+    _getAndCacheOtelFactory();
     final logProvider = OTelAPI.loggerProvider(name) as LoggerProvider;
     logProvider.resource ??= defaultResource;
     return logProvider;
@@ -1286,10 +1291,39 @@ class OTel {
     if (_otelFactory != null) {
       return _otelFactory!;
     }
-    if (OTelFactory.otelFactory == null) {
-      throw StateError('initialize() must be called first.');
+    final installed = OTelFactory.otelFactory;
+    if (installed is! OTelSDKFactory) {
+      throw StateError(installed == null
+          ? 'OTel.initialize() must be called first.'
+          : _sdkAccessorBeforeInitializeMessage(installed));
     }
-    return _otelFactory = OTelFactory.otelFactory! as OTelSDKFactory;
+    return _otelFactory = installed;
+  }
+
+  static String _factoryInstalledBeforeInitializeMessage(
+    OTelFactory installed,
+  ) {
+    if (installed is OTelAPIFactory) {
+      return 'OTel.initialize() cannot run because the OpenTelemetry API '
+          'auto-installed its no-op factory before the SDK was initialized. '
+          'Ensure OTel.initialize() runs before any API-only OTel calls. In '
+          'tests, call OTel.reset() before OTel.initialize() to clear the '
+          'no-op factory.';
+    }
+    return 'OTel.initialize() cannot run because a non-SDK OpenTelemetry '
+        'factory (${installed.runtimeType}) is already installed.';
+  }
+
+  static String _sdkAccessorBeforeInitializeMessage(OTelFactory installed) {
+    if (installed is OTelAPIFactory) {
+      return 'OTel.initialize() must be called first. The OpenTelemetry API '
+          'auto-installed its no-op factory before the SDK was initialized. '
+          'Ensure OTel.initialize() runs before any SDK accessors. In tests, '
+          'call OTel.reset() before OTel.initialize() to clear the no-op '
+          'factory.';
+    }
+    return 'OTel.initialize() must be called first. A non-SDK OpenTelemetry '
+        'factory (${installed.runtimeType}) is already installed.';
   }
 
   /// Initializes logging based on environment variables.
