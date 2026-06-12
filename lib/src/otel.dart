@@ -1303,27 +1303,35 @@ class OTel {
   static String _factoryInstalledBeforeInitializeMessage(
     OTelFactory installed,
   ) {
-    if (installed is OTelAPIFactory) {
-      return 'OTel.initialize() cannot run because the OpenTelemetry API '
-          'auto-installed its no-op factory before the SDK was initialized. '
-          'Ensure OTel.initialize() runs before any API-only OTel calls. In '
-          'tests, call OTel.reset() before OTel.initialize() to clear the '
-          'no-op factory.';
-    }
-    return 'OTel.initialize() cannot run because a non-SDK OpenTelemetry '
-        'factory (${installed.runtimeType}) is already installed.';
+    return _nonSdkFactoryMessage(
+      installed,
+      context: 'OTel.initialize() cannot run because',
+      apiNoOpGuidance:
+          'Ensure OTel.initialize() runs before any API-only OTel calls.',
+    );
   }
 
   static String _sdkAccessorBeforeInitializeMessage(OTelFactory installed) {
+    return _nonSdkFactoryMessage(
+      installed,
+      context: 'OTel.initialize() must be called first.',
+      apiNoOpGuidance:
+          'Ensure OTel.initialize() runs before any SDK accessors.',
+    );
+  }
+
+  static String _nonSdkFactoryMessage(
+    OTelFactory installed, {
+    required String context,
+    required String apiNoOpGuidance,
+  }) {
     if (installed is OTelAPIFactory) {
-      return 'OTel.initialize() must be called first. The OpenTelemetry API '
-          'auto-installed its no-op factory before the SDK was initialized. '
-          'Ensure OTel.initialize() runs before any SDK accessors. In tests, '
-          'call OTel.reset() before OTel.initialize() to clear the no-op '
-          'factory.';
+      return '$context The OpenTelemetry API auto-installed its no-op factory '
+          'before the SDK was initialized. $apiNoOpGuidance In tests, call '
+          'OTel.reset() before OTel.initialize() to clear the no-op factory.';
     }
-    return 'OTel.initialize() must be called first. A non-SDK OpenTelemetry '
-        'factory (${installed.runtimeType}) is already installed.';
+    return '$context A non-SDK OpenTelemetry factory '
+        '(${installed.runtimeType}) is already installed.';
   }
 
   /// Initializes logging based on environment variables.
