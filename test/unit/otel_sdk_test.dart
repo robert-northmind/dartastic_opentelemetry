@@ -651,9 +651,16 @@ void main() {
       await OTel.reset();
     });
 
-    test('_getAndCacheOtelFactory throws when not initialized', () {
-      // Exercises the StateError thrown when OTel is not initialized
-      expect(() => OTel.contextKey<String>('test-key'), throwsStateError);
+    test('SDK accessor provisionally upgrades the factory when not initialized',
+        () {
+      // Previously this threw a StateError. The SDK now upgrades the API's
+      // no-op factory to a provisional SDK factory instead of crashing
+      // (issue #50); an explicit initialize() is still required to configure
+      // exporters/processors.
+      final key = OTel.contextKey<String>('test-key');
+      expect(key, isNotNull);
+      expect(OTel.isInitialized, isFalse);
+      expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
     });
   });
 
