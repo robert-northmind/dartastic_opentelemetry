@@ -43,10 +43,15 @@ class OTel {
   ///
   /// This is intentionally separate from "an [OTelFactory] is installed":
   /// the API may auto-install a no-op factory before [initialize] runs (see
-  /// [_ensureSDKFactory]), and an SDK accessor may provisionally upgrade it.
-  /// Only an explicit [initialize] call flips this flag, so re-initialization
-  /// is detected correctly regardless of any earlier factory installation.
+  /// [_ensureSDKFactory]). Only an explicit [initialize] call flips this flag,
+  /// so re-initialization is detected correctly while still allowing the SDK
+  /// to replace the API's no-op factory during first initialization.
   static bool _userInitialized = false;
+
+  /// Whether [_ensureSDKFactory] upgraded the API no-op factory before an
+  /// explicit [initialize] call. [initialize] may replace this provisional
+  /// factory with the fully configured SDK factory.
+  static bool _provisionalFactoryInstalled = false;
 
   static Sampler? _defaultSampler;
   static TimeProvider? _defaultTimeProvider;
@@ -94,9 +99,9 @@ class OTel {
   /// Whether [initialize] has been called (and not undone by [reset]).
   ///
   /// This reflects the explicit [initialize] call only, so it can still be
-  /// `false` while a factory is installed: calling an SDK accessor before
-  /// [initialize] provisionally installs a default factory without marking
-  /// the SDK initialized.
+  /// `false` while the API's no-op factory is installed, or while that no-op
+  /// factory has been provisionally upgraded by an SDK accessor before the SDK
+  /// has been initialized.
   static bool get isInitialized => _userInitialized;
 
   /// Initializes the OpenTelemetry SDK with the specified configuration.
@@ -239,8 +244,8 @@ class OTel {
     }
     // Re-initialization is keyed on an explicit prior initialize() call, not
     // on the mere presence of a factory: the API may have auto-installed a
-    // no-op factory, or an SDK accessor may have provisionally upgraded it,
-    // before initialize() runs. Either of those is upgraded/overwritten below.
+    // no-op factory before initialize() runs. That no-op factory is
+    // upgraded/overwritten below.
     if (_userInitialized) {
       throw StateError(
         'OTel.initialize() can only be called once. If you need multiple '
@@ -248,9 +253,13 @@ class OTel {
       );
     }
     final installedFactory = OTelFactory.otelFactory;
-    if (installedFactory != null &&
-        installedFactory is! OTelSDKFactory &&
-        installedFactory is! OTelAPIFactory) {
+    if (installedFactory is OTelSDKFactory && !_provisionalFactoryInstalled) {
+      throw StateError(
+        'An SDK OpenTelemetry factory (${installedFactory.runtimeType}) is '
+        'already installed. Call OTel.reset() first if this is a test.',
+      );
+    }
+    if (installedFactory != null && installedFactory is! OTelAPIFactory) {
       // A foreign, caller-supplied factory is installed; refuse rather than
       // silently discard it.
       throw _foreignFactoryError(installedFactory);
@@ -279,14 +288,22 @@ class OTel {
     initializeLogging();
 
     // Install the fully-configured SDK factory, overwriting any no-op API
-    // factory or provisional default SDK factory installed before now. Using a
-    // fresh instance discards any providers those earlier factories cached.
-    OTelFactory.otelFactory = factoryFactory(
+    // factory installed before now. Using a fresh instance discards any no-op
+    // providers the API factory cached.
+    final createdFactory = factoryFactory(
       apiEndpoint: endpoint,
       apiServiceName: serviceName,
       apiServiceVersion: serviceVersion,
     );
-    _otelFactory = OTelFactory.otelFactory as OTelSDKFactory?;
+    if (createdFactory is! OTelSDKFactory) {
+      throw StateError(
+        'oTelFactoryCreationFunction must create an OTelSDKFactory, got '
+        '${createdFactory.runtimeType}.',
+      );
+    }
+    OTelFactory.otelFactory = createdFactory;
+    _otelFactory = createdFactory;
+    _provisionalFactoryInstalled = false;
     _userInitialized = true;
 
     if (OTelLog.isDebug()) {
@@ -1328,7 +1345,7 @@ class OTel {
   static OTelFactory _getAndCacheOtelFactory() => _ensureSDKFactory();
 
   /// Ensures an [OTelSDKFactory] is installed as the global factory, upgrading
-  /// from the API's no-op [OTelAPIFactory] (or installing fresh) when needed.
+  /// from the API's no-op [OTelAPIFactory] when needed.
   ///
   /// Per the OpenTelemetry model the API may auto-install a no-op
   /// [OTelAPIFactory] the first time any API call runs (for example during
@@ -1345,10 +1362,10 @@ class OTel {
   /// accessors then return SDK types and the SDK downcasts succeed.
   ///
   /// When [endpoint], [serviceName] or [serviceVersion] are omitted the SDK
-  /// defaults are used. [initialize] installs the fully-configured factory
-  /// directly, so a default-configured factory created here is provisional:
-  /// it carries no span processors/exporters (and therefore exports nothing)
-  /// and is replaced when [initialize] runs.
+  /// defaults are used. A factory created here is provisional and may be
+  /// replaced by the fully configured factory when [initialize] runs. If no
+  /// factory has been installed yet this method keeps the SDK's historical
+  /// lifecycle contract and throws: callers should use [initialize] first.
   static OTelSDKFactory _ensureSDKFactory({
     String? endpoint,
     String? serviceName,
@@ -1361,14 +1378,18 @@ class OTel {
       // a swap.
       return _otelFactory = installed;
     }
-    if (installed == null || installed is OTelAPIFactory) {
-      // First install, or upgrade of the API's no-op factory.
+    if (installed == null) {
+      throw StateError('OTel.initialize() must be called first.');
+    }
+    if (installed is OTelAPIFactory) {
+      // Upgrade of the API's no-op factory.
       final sdkFactory = otelSDKFactoryFactoryFunction(
         apiEndpoint: endpoint ?? defaultEndpoint,
         apiServiceName: serviceName ?? defaultServiceName,
         apiServiceVersion: serviceVersion ?? '1.0.0',
       ) as OTelSDKFactory;
       OTelFactory.otelFactory = sdkFactory;
+      _provisionalFactoryInstalled = !_userInitialized;
       return _otelFactory = sdkFactory;
     }
     // A foreign factory (neither the API no-op nor an SDK factory) is
@@ -1504,6 +1525,7 @@ class OTel {
     // Reset all static fields
     _otelFactory = null;
     _userInitialized = false;
+    _provisionalFactoryInstalled = false;
     _defaultSampler = null;
     _defaultTimeProvider = null;
     defaultResource = null;

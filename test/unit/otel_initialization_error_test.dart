@@ -4,12 +4,11 @@
 // Regression coverage for the factory-upgrade lifecycle (issue #50).
 //
 // The API auto-installs a spec-mandated no-op factory the first time any API
-// call runs (for example during resource detection). When that happens before
-// OTel.initialize(), the SDK must *upgrade* that no-op factory to a real SDK
-// factory rather than crash with an opaque
+// call runs. When that happens before OTel.initialize(), the SDK must replace
+// that no-op factory with a real SDK factory rather than crash with an opaque
 // "APITracerProvider is not a subtype of TracerProvider" cast error or refuse
-// to initialize. This mirrors how the Java/JS/Python SDKs replace the global
-// no-op provider when the SDK is installed.
+// to initialize. This mirrors how OpenTelemetry SDKs replace the global no-op
+// provider when the SDK is installed.
 
 import 'package:dartastic_opentelemetry/dartastic_opentelemetry.dart';
 import 'package:dartastic_opentelemetry_api/dartastic_opentelemetry_api.dart'
@@ -22,41 +21,60 @@ void main() {
   });
 
   group('SDK accessors upgrade the API no-op factory instead of throwing', () {
-    test('tracerProvider() before initialize() returns an SDK TracerProvider',
+    test('tracerProvider() still requires initialize() if no factory exists',
         () {
-      final tp = OTel.tracerProvider();
-      expect(tp, isA<TracerProvider>());
-      // The global factory has been upgraded in place...
-      expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
-      // ...but this is a provisional upgrade, not an explicit initialize().
+      expect(
+        OTel.tracerProvider,
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('OTel.initialize() must be called first'),
+        )),
+      );
+      expect(OTelFactory.otelFactory, isNull);
       expect(OTel.isInitialized, isFalse);
     });
 
     test('tracerProvider() after API auto-install does not crash (issue #50)',
         () {
       // Force the API to win the "first factory installed" race.
-      api.OTelAPI.tracerProvider();
+      final apiProvider = api.OTelAPI.tracerProvider();
+      expect(apiProvider, isA<api.APITracerProvider>());
       expect(OTelFactory.otelFactory, isA<api.OTelAPIFactory>());
+      expect(OTelFactory.otelFactory, isNot(isA<OTelSDKFactory>()));
 
-      // The previously-failing line: OTelAPI.tracerProvider() as TracerProvider.
+      // The previously-failing path: OTelAPI.tracerProvider() as TracerProvider.
       final tp = OTel.tracerProvider();
       expect(tp, isA<TracerProvider>());
       expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
+      expect(OTel.isInitialized, isFalse);
+
+      // The API cache should notice the swapped global factory on its next call.
+      expect(api.OTelAPI.tracerProvider(), isA<TracerProvider>());
     });
 
-    test('meterProvider() before initialize() returns an SDK MeterProvider',
+    test('meterProvider() after API auto-install returns an SDK MeterProvider',
         () {
+      api.OTelAPI.meterProvider();
+      expect(OTelFactory.otelFactory, isNot(isA<OTelSDKFactory>()));
+
       expect(OTel.meterProvider(), isA<MeterProvider>());
       expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
     });
 
-    test('loggerProvider() before initialize() returns an SDK LoggerProvider',
+    test(
+        'loggerProvider() after API auto-install returns an SDK LoggerProvider',
         () {
+      api.OTelAPI.loggerProvider();
+      expect(OTelFactory.otelFactory, isNot(isA<OTelSDKFactory>()));
+
       expect(OTel.loggerProvider(), isA<LoggerProvider>());
       expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
     });
 
-    test('addTracerProvider() before initialize() returns an SDK provider', () {
+    test('addTracerProvider() after API auto-install returns an SDK provider',
+        () {
+      api.OTelAPI.tracerProvider();
       expect(OTel.addTracerProvider('named'), isA<TracerProvider>());
       expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
     });
@@ -74,29 +92,31 @@ void main() {
       api.OTelAPI.meterProvider();
       await OTel.initialize(serviceName: 'svc-b');
       expect(OTel.isInitialized, isTrue);
+      expect(OTel.meterProvider(), isA<MeterProvider>());
     });
 
     test('initialize() succeeds after API loggerProvider()', () async {
       api.OTelAPI.loggerProvider();
       await OTel.initialize(serviceName: 'svc-c');
       expect(OTel.isInitialized, isTrue);
+      expect(OTel.loggerProvider(), isA<LoggerProvider>());
     });
 
     test(
-        'initialize() after a provisional SDK accessor still applies its config',
+        'initialize() after an API-noop upgrade still applies configured resource',
         () async {
-      // An SDK accessor provisionally upgrades to a default SDK factory.
+      api.OTelAPI.tracerProvider();
       OTel.tracerProvider();
+      expect(OTelFactory.otelFactory, isA<OTelSDKFactory>());
       expect(OTel.isInitialized, isFalse);
 
-      // A later initialize() must succeed and install the configured factory.
       await OTel.initialize(serviceName: 'configured-service');
-      expect(OTel.isInitialized, isTrue);
 
-      final hasServiceName = OTel.defaultResource!.attributes
-          .toList()
-          .any((a) => a.key == 'service.name' && a.value == 'configured-service');
+      final hasServiceName = OTel.defaultResource!.attributes.toList().any(
+            (a) => a.key == 'service.name' && a.value == 'configured-service',
+          );
       expect(hasServiceName, isTrue);
+      expect(OTel.isInitialized, isTrue);
     });
   });
 
