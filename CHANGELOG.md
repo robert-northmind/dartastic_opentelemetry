@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0-beta.7-wip]
 
+### Fixed
+- **SDK accessors no longer crash when the API's no-op factory is installed first (issue #50).** If any API call ran before `OTel.initialize()` (commonly resource detection, which is on by default), the API auto-installed its no-op factory, and SDK accessors then failed with a `type 'APITracerProvider' is not a subtype of type 'TracerProvider'` cast error while `initialize()` refused to run. The SDK now *upgrades* an installed no-op factory to a real SDK factory instead of throwing — matching how the Java/JS/Python SDKs replace the global no-op provider once the SDK is installed. A `StateError` is now thrown only when a foreign (non-API, non-SDK) factory is already installed.
+
+### Added
+- **`OTel.isInitialized`** — `true` once `OTel.initialize()` has been called, and `false` before that (and again after `OTel.reset()`). Handy in tests and setup code that needs to know whether the SDK is ready.
+
 ## [1.1.0-beta.6] - 2026-05-18
 - **Bumped `dartastic_opentelemetry_api` to `^1.0.0-beta.7`.** Beta.7 fixes observable metrics and standard env var defaults.
 
