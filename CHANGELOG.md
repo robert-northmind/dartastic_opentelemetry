@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0-beta.7-wip]
 
 ### Fixed
-- **The SDK now upgrades the API no-op factory (issue #50).** If the API auto-installed its no-op factory before SDK initialization or SDK provider access, the SDK now replaces it with an SDK factory instead of failing with an `APITracerProvider`/`TracerProvider` cast error or refusing to initialize.
+- **The SDK now upgrades the API no-op factory (issue #50).** If the API auto-installed its no-op factory before SDK initialization or provider access, the SDK now replaces it with an SDK factory instead of failing with API-provider-to-SDK-provider cast errors for traces, metrics, or logs, or refusing to initialize.
 
 ### Added
 - **`OTel.isInitialized`** reports whether `OTel.initialize()` has been called since the last `OTel.reset()`.
