@@ -38,6 +38,16 @@ import '../dartastic_opentelemetry.dart';
 /// List\<String>, List\<bool>, List\<int> or List\<double>).
 class OTel {
   static OTelSDKFactory? _otelFactory;
+
+  /// Whether [initialize] has been explicitly called by the user.
+  ///
+  /// This is intentionally separate from "an [OTelFactory] is installed":
+  /// the API may auto-install a no-op factory before [initialize] runs (see
+  /// [_ensureSDKFactory]), and an SDK accessor may provisionally upgrade it.
+  /// Only an explicit [initialize] call flips this flag, so re-initialization
+  /// is detected correctly regardless of any earlier factory installation.
+  static bool _userInitialized = false;
+
   static Sampler? _defaultSampler;
   static TimeProvider? _defaultTimeProvider;
 
@@ -80,6 +90,14 @@ class OTel {
 
   /// Default tracer version.
   static String defaultTracerVersion = '1.0.0';
+
+  /// Whether [initialize] has been called (and not undone by [reset]).
+  ///
+  /// This reflects the explicit [initialize] call only, so it can still be
+  /// `false` while a factory is installed: calling an SDK accessor before
+  /// [initialize] provisionally installs a default factory without marking
+  /// the SDK initialized.
+  static bool get isInitialized => _userInitialized;
 
   /// Initializes the OpenTelemetry SDK with the specified configuration.
   ///
@@ -219,11 +237,23 @@ class OTel {
         resourceAttributes = OTel.attributesFromMap(envResourceAttrs);
       }
     }
+    // Re-initialization is keyed on an explicit prior initialize() call, not
+    // on the mere presence of a factory: the API may have auto-installed a
+    // no-op factory, or an SDK accessor may have provisionally upgraded it,
+    // before initialize() runs. Either of those is upgraded/overwritten below.
+    if (_userInitialized) {
+      throw StateError(
+        'OTel.initialize() can only be called once. If you need multiple '
+        'endpoints or service names or versions create a named TracerProvider.',
+      );
+    }
     final installedFactory = OTelFactory.otelFactory;
-    if (installedFactory != null) {
-      throw StateError(installedFactory is OTelSDKFactory
-          ? 'OTel.initialize() can only be called once. If you need multiple endpoints or service names or versions create a named TracerProvider.'
-          : _factoryInstalledBeforeInitializeMessage(installedFactory));
+    if (installedFactory != null &&
+        installedFactory is! OTelSDKFactory &&
+        installedFactory is! OTelAPIFactory) {
+      // A foreign, caller-supplied factory is installed; refuse rather than
+      // silently discard it.
+      throw _foreignFactoryError(installedFactory);
     }
 
     if (endpoint.isEmpty) {
@@ -248,11 +278,16 @@ class OTel {
     // Initialize logging from environment variables if needed
     initializeLogging();
 
+    // Install the fully-configured SDK factory, overwriting any no-op API
+    // factory or provisional default SDK factory installed before now. Using a
+    // fresh instance discards any providers those earlier factories cached.
     OTelFactory.otelFactory = factoryFactory(
       apiEndpoint: endpoint,
       apiServiceName: serviceName,
       apiServiceVersion: serviceVersion,
     );
+    _otelFactory = OTelFactory.otelFactory as OTelSDKFactory?;
+    _userInitialized = true;
 
     if (OTelLog.isDebug()) {
       OTelLog.debug(
@@ -1283,56 +1318,72 @@ class OTel {
     return _otelFactory!.spanLink(spanContext, attributes: attributes);
   }
 
-  /// Retrieves and caches the OTelFactory instance.
+  /// Returns the installed SDK factory, upgrading the API's no-op factory to a
+  /// real SDK factory when necessary.
   ///
-  /// @return The OTelFactory instance
-  /// @throws StateError if initialize() has not been called
-  static OTelFactory _getAndCacheOtelFactory() {
-    if (_otelFactory != null) {
-      return _otelFactory!;
-    }
-    final installed = OTelFactory.otelFactory;
-    if (installed is! OTelSDKFactory) {
-      throw StateError(installed == null
-          ? 'OTel.initialize() must be called first.'
-          : _sdkAccessorBeforeInitializeMessage(installed));
-    }
-    return _otelFactory = installed;
-  }
+  /// This is the single chokepoint that all SDK entry points use to obtain a
+  /// factory. See [_ensureSDKFactory] for the upgrade semantics.
+  ///
+  /// @return The installed (or freshly upgraded) [OTelSDKFactory]
+  static OTelFactory _getAndCacheOtelFactory() => _ensureSDKFactory();
 
-  static String _factoryInstalledBeforeInitializeMessage(
-    OTelFactory installed,
-  ) {
-    return _nonSdkFactoryMessage(
-      installed,
-      context: 'OTel.initialize() cannot run because',
-      apiNoOpGuidance:
-          'Ensure OTel.initialize() runs before any API-only OTel calls.',
-    );
-  }
-
-  static String _sdkAccessorBeforeInitializeMessage(OTelFactory installed) {
-    return _nonSdkFactoryMessage(
-      installed,
-      context: 'OTel.initialize() must be called first.',
-      apiNoOpGuidance:
-          'Ensure OTel.initialize() runs before any SDK accessors.',
-    );
-  }
-
-  static String _nonSdkFactoryMessage(
-    OTelFactory installed, {
-    required String context,
-    required String apiNoOpGuidance,
+  /// Ensures an [OTelSDKFactory] is installed as the global factory, upgrading
+  /// from the API's no-op [OTelAPIFactory] (or installing fresh) when needed.
+  ///
+  /// Per the OpenTelemetry model the API may auto-install a no-op
+  /// [OTelAPIFactory] the first time any API call runs (for example during
+  /// resource detection, which is on by default). When that happens before
+  /// [initialize], the SDK *upgrades* that no-op factory to a real
+  /// [OTelSDKFactory] instead of failing with an opaque
+  /// `APITracerProvider is not a subtype of TracerProvider` cast error.
+  /// This mirrors how the Java/JS/Python SDKs replace the global no-op
+  /// provider when the SDK is installed. See issue #50.
+  ///
+  /// A *new* factory instance is installed on upgrade, which naturally discards
+  /// any no-op providers the API factory had cached. The API package re-syncs
+  /// its own cached factory on its next call, so subsequent `OTelAPI.*`
+  /// accessors then return SDK types and the SDK downcasts succeed.
+  ///
+  /// When [endpoint], [serviceName] or [serviceVersion] are omitted the SDK
+  /// defaults are used. [initialize] installs the fully-configured factory
+  /// directly, so a default-configured factory created here is provisional:
+  /// it carries no span processors/exporters (and therefore exports nothing)
+  /// and is replaced when [initialize] runs.
+  static OTelSDKFactory _ensureSDKFactory({
+    String? endpoint,
+    String? serviceName,
+    String? serviceVersion,
   }) {
-    if (installed is OTelAPIFactory) {
-      return '$context The OpenTelemetry API auto-installed its no-op factory '
-          'before the SDK was initialized. $apiNoOpGuidance In tests, call '
-          'OTel.reset() before OTel.initialize() to clear the no-op factory.';
+    final installed = OTelFactory.otelFactory;
+    if (installed is OTelSDKFactory) {
+      // Already an SDK factory. Keep the local cache in sync — the previous
+      // implementation cached eagerly and could return a stale factory after
+      // a swap.
+      return _otelFactory = installed;
     }
-    return '$context A non-SDK OpenTelemetry factory '
-        '(${installed.runtimeType}) is already installed.';
+    if (installed == null || installed is OTelAPIFactory) {
+      // First install, or upgrade of the API's no-op factory.
+      final sdkFactory = otelSDKFactoryFactoryFunction(
+        apiEndpoint: endpoint ?? defaultEndpoint,
+        apiServiceName: serviceName ?? defaultServiceName,
+        apiServiceVersion: serviceVersion ?? '1.0.0',
+      ) as OTelSDKFactory;
+      OTelFactory.otelFactory = sdkFactory;
+      return _otelFactory = sdkFactory;
+    }
+    // A foreign factory (neither the API no-op nor an SDK factory) is
+    // installed; we must not silently discard a caller-supplied factory.
+    throw _foreignFactoryError(installed);
   }
+
+  /// Error thrown when a non-API, non-SDK [OTelFactory] is already installed
+  /// and therefore cannot be upgraded to an SDK factory.
+  static StateError _foreignFactoryError(OTelFactory installed) => StateError(
+        'A non-SDK OpenTelemetry factory (${installed.runtimeType}) is already '
+        'installed, so OTel cannot upgrade it to an SDK factory. Install the '
+        'SDK factory before any other factory, or call OTel.reset() first '
+        '(for example between tests).',
+      );
 
   /// Initializes logging based on environment variables.
   ///
@@ -1452,6 +1503,7 @@ class OTel {
 
     // Reset all static fields
     _otelFactory = null;
+    _userInitialized = false;
     _defaultSampler = null;
     _defaultTimeProvider = null;
     defaultResource = null;
