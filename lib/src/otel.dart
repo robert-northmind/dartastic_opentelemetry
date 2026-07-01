@@ -48,9 +48,17 @@ class OTel {
   /// to replace the API's no-op factory during first initialization.
   static bool _userInitialized = false;
 
-  /// Whether [_ensureSDKFactory] upgraded the API no-op factory before an
-  /// explicit [initialize] call. [initialize] may replace this provisional
-  /// factory with the fully configured SDK factory.
+  /// Whether [_ensureSDKFactory] installed an SDK factory only to replace an
+  /// API no-op factory before an explicit [initialize] call.
+  ///
+  /// This can happen when an API call runs first and auto-installs the no-op
+  /// factory, then user code calls an SDK provider accessor before
+  /// [initialize]. The SDK accessor needs an SDK factory to avoid downcasting
+  /// API providers to SDK provider types. That factory is provisional because
+  /// the SDK still has not applied the endpoint, service resource, processors,
+  /// exporters, sampler, and other configuration from [initialize]. A later
+  /// [initialize] call is therefore allowed to replace it with the fully
+  /// configured SDK factory.
   static bool _provisionalFactoryInstalled = false;
 
   static Sampler? _defaultSampler;
