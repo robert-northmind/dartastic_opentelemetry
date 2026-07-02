@@ -242,15 +242,16 @@ class OTel {
     // upgraded/overwritten below.
     if (_userInitialized) {
       throw StateError(
-        'OTel.initialize() can only be called once. If you need multiple '
-        'endpoints or service names or versions create a named TracerProvider.',
+        'OTel.initialize() can only be called once. For additional telemetry '
+        'pipelines, create named tracer, meter, or logger providers instead.',
       );
     }
     final installedFactory = OTelFactory.otelFactory;
     if (installedFactory is OTelSDKFactory) {
       throw StateError(
         'An SDK OpenTelemetry factory (${installedFactory.runtimeType}) is '
-        'already installed. Call OTel.reset() first if this is a test.',
+        'already installed. OTel.initialize() can only install the global SDK '
+        'factory once. Call OTel.reset() first if this is a test.',
       );
     }
     if (installedFactory != null && installedFactory is! OTelAPIFactory) {
@@ -289,6 +290,8 @@ class OTel {
       apiServiceName: serviceName,
       apiServiceVersion: serviceVersion,
     );
+    // OTelFactoryCreationFunction returns the base OTelFactory type, but SDK
+    // initialization requires the concrete SDK factory implementation.
     if (createdFactory is! OTelSDKFactory) {
       throw StateError(
         'oTelFactoryCreationFunction must create an OTelSDKFactory, got '
@@ -1346,22 +1349,20 @@ class OTel {
   /// factory would not automatically become configured when [initialize]
   /// replaces the global factory later.
   static OTelSDKFactory _ensureSDKFactory() {
-    final installed = OTelFactory.otelFactory;
-    if (installed is OTelSDKFactory) {
+    final installedFactory = OTelFactory.otelFactory;
+    if (installedFactory is OTelSDKFactory) {
       // Already an SDK factory. Keep the local cache in sync — the previous
       // implementation cached eagerly and could return a stale factory after
       // a swap.
-      return _otelFactory = installed;
+      _otelFactory = installedFactory;
+      return installedFactory;
     }
-    if (installed == null) {
-      throw StateError('OTel.initialize() must be called first.');
-    }
-    if (installed is OTelAPIFactory) {
+    if (installedFactory == null || installedFactory is OTelAPIFactory) {
       throw StateError('OTel.initialize() must be called first.');
     }
     // A foreign factory (neither the API no-op nor an SDK factory) is
     // installed; we must not silently discard a caller-supplied factory.
-    throw _foreignFactoryError(installed);
+    throw _foreignFactoryError(installedFactory);
   }
 
   /// Error thrown when a non-API, non-SDK [OTelFactory] is already installed
