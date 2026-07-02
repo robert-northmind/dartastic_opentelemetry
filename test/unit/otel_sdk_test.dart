@@ -652,9 +652,8 @@ void main() {
     });
 
     test('SDK accessor throws when no factory has been installed', () {
-      // The SDK only upgrades an already-installed API no-op factory. It still
-      // preserves the lifecycle contract that SDK entry points require
-      // OTel.initialize() when no factory exists yet.
+      // SDK entry points require OTel.initialize(); API-only no-op behavior is
+      // available through OTelAPI, not through concrete SDK accessors.
       expect(() => OTel.contextKey<String>('test-key'), throwsStateError);
       expect(OTel.isInitialized, isFalse);
       expect(OTelFactory.otelFactory, isNull);
