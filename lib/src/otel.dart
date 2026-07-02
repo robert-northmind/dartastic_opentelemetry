@@ -561,7 +561,7 @@ class OTel {
   /// @param schemaUrl Optional URL of the schema defining the attributes
   /// @return A new Resource instance
   static Resource resource(Attributes? attributes, [String? schemaUrl]) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return (_otelFactory as OTelSDKFactory).resource(
       attributes ?? OTel.attributes(),
       schemaUrl,
@@ -582,7 +582,7 @@ class OTel {
   /// @return A new ContextKey instance
   static ContextKey<T> contextKey<T>(String name,
       {bool isTransferable = false}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.contextKey<T>(
       name,
       ContextKey.generateContextKeyId(),
@@ -599,7 +599,7 @@ class OTel {
   /// @param spanContext Optional span context to include in the context
   /// @return A new Context instance
   static Context context({Baggage? baggage, SpanContext? spanContext}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     var context = OTelFactory.otelFactory!.context(baggage: baggage);
     if (spanContext != null) {
       context = context.copyWithSpanContext(spanContext);
@@ -620,7 +620,7 @@ class OTel {
   /// @param name Optional name of a specific TracerProvider
   /// @return The TracerProvider instance
   static TracerProvider tracerProvider({String? name}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final tracerProvider = OTelAPI.tracerProvider(name) as TracerProvider;
     // Ensure the resource is properly set
     if (tracerProvider.resource == null && defaultResource != null) {
@@ -654,7 +654,7 @@ class OTel {
   /// @param name Optional name of a specific MeterProvider
   /// @return The MeterProvider instance
   static MeterProvider meterProvider({String? name}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final meterProvider = OTelAPI.meterProvider(name) as MeterProvider;
     meterProvider.resource ??= defaultResource;
     return meterProvider;
@@ -681,7 +681,7 @@ class OTel {
     Resource? resource,
     Sampler? sampler,
   }) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final sdkTracerProvider = OTelAPI.addTracerProvider(name) as TracerProvider;
     sdkTracerProvider.resource = resource ?? defaultResource;
     sdkTracerProvider.sampler = sampler ?? _defaultSampler;
@@ -747,7 +747,7 @@ class OTel {
     String? serviceVersion,
     Resource? resource,
   }) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final mp = _otelFactory!.addMeterProvider(
       name,
       endpoint: endpoint,
@@ -788,7 +788,7 @@ class OTel {
   /// @param name Optional name of a specific LoggerProvider
   /// @return The LoggerProvider instance
   static LoggerProvider loggerProvider({String? name}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final logProvider = OTelAPI.loggerProvider(name) as LoggerProvider;
     logProvider.resource ??= defaultResource;
     return logProvider;
@@ -813,7 +813,7 @@ class OTel {
     String? serviceVersion,
     Resource? resource,
   }) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     final lp = _otelFactory!.addLogProvider(name,
         endpoint: endpoint,
         serviceName: serviceName,
@@ -932,7 +932,7 @@ class OTel {
   /// @param parent The parent SpanContext
   /// @return A new child SpanContext
   static SpanContext spanContextFromParent(SpanContext parent) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return OTelFactory.otelFactory!.spanContextFromParent(parent);
   }
 
@@ -942,7 +942,7 @@ class OTel {
   ///
   /// @return An invalid SpanContext instance
   static SpanContext spanContextInvalid() {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return OTelFactory.otelFactory!.spanContextInvalid();
   }
 
@@ -955,7 +955,7 @@ class OTel {
   /// @param attributes Attributes to associate with the event
   /// @return A new SpanEvent instance with the current timestamp
   static SpanEvent spanEventNow(String name, Attributes attributes) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return spanEvent(name, attributes, DateTime.now());
   }
 
@@ -973,7 +973,7 @@ class OTel {
     Attributes? attributes,
     DateTime? timestamp,
   ]) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.spanEvent(name, attributes, timestamp);
   }
 
@@ -985,7 +985,7 @@ class OTel {
   /// @param keyValuePairs A map of key-value pairs to include in the baggage
   /// @return A new Baggage instance
   static Baggage baggageForMap(Map<String, String> keyValuePairs) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.baggageForMap(keyValuePairs);
   }
 
@@ -995,7 +995,7 @@ class OTel {
   /// @param metadata Optional metadata for the baggage entry
   /// @return A new BaggageEntry instance
   static BaggageEntry baggageEntry(String value, [String? metadata]) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.baggageEntry(value, metadata);
   }
 
@@ -1004,7 +1004,7 @@ class OTel {
   /// @param entries Optional map of baggage entries
   /// @return A new Baggage instance
   static Baggage baggage([Map<String, BaggageEntry>? entries]) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.baggage(entries);
   }
 
@@ -1022,7 +1022,7 @@ class OTel {
   /// @param value The string value of the attribute
   /// @return A new Attribute instance
   static Attribute<String> attributeString(String name, String value) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeString(name, value);
   }
 
@@ -1032,7 +1032,7 @@ class OTel {
   /// @param value The boolean value of the attribute
   /// @return A new Attribute instance
   static Attribute<bool> attributeBool(String name, bool value) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeBool(name, value);
   }
 
@@ -1042,7 +1042,7 @@ class OTel {
   /// @param value The integer value of the attribute
   /// @return A new Attribute instance
   static Attribute<int> attributeInt(String name, int value) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeInt(name, value);
   }
 
@@ -1052,7 +1052,7 @@ class OTel {
   /// @param value The double value of the attribute
   /// @return A new Attribute instance
   static Attribute<double> attributeDouble(String name, double value) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeDouble(name, value);
   }
 
@@ -1065,7 +1065,7 @@ class OTel {
     String name,
     List<String> value,
   ) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeStringList(name, value);
   }
 
@@ -1078,7 +1078,7 @@ class OTel {
     String name,
     List<bool> value,
   ) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeBoolList(name, value);
   }
 
@@ -1088,7 +1088,7 @@ class OTel {
   /// @param value The list of integer values
   /// @return A new Attribute instance
   static Attribute<List<int>> attributeIntList(String name, List<int> value) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeIntList(name, value);
   }
 
@@ -1101,7 +1101,7 @@ class OTel {
     String name,
     List<double> value,
   ) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributeDoubleList(name, value);
   }
 
@@ -1109,7 +1109,7 @@ class OTel {
   ///
   /// @return A new empty Attributes collection
   static Attributes createAttributes() {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributes();
   }
 
@@ -1216,7 +1216,7 @@ class OTel {
   /// @param attributeList List of Attribute objects
   /// @return A new Attributes collection
   static Attributes attributesFromList(List<Attribute> attributeList) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.attributesFromList(attributeList);
   }
 
@@ -1227,7 +1227,7 @@ class OTel {
   /// @param entries Optional map of key-value pairs for the trace state
   /// @return A new TraceState instance
   static TraceState traceState(Map<String, String>? entries) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.traceState(entries);
   }
 
@@ -1240,7 +1240,7 @@ class OTel {
   /// @param flags Optional flags value (default: NONE_FLAG)
   /// @return A new TraceFlags instance
   static TraceFlags traceFlags([int? flags]) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.traceFlags(flags ?? TraceFlags.NONE_FLAG);
   }
 
@@ -1257,7 +1257,7 @@ class OTel {
   /// @return A new TraceId instance
   /// @throws ArgumentError if traceId is not exactly 16 bytes
   static TraceId traceIdOf(Uint8List traceId) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     if (traceId.length != TraceId.traceIdLength) {
       throw ArgumentError(
         'Trace ID must be exactly ${TraceId.traceIdLength} bytes, got ${traceId.length} bytes',
@@ -1294,7 +1294,7 @@ class OTel {
   /// @return A new SpanId instance
   /// @throws ArgumentError if spanId is not exactly 8 bytes
   static SpanId spanIdOf(Uint8List spanId) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     if (spanId.length != 8) {
       throw ArgumentError(
         'Span ID must be exactly 8 bytes, got ${spanId.length} bytes',
@@ -1327,18 +1327,9 @@ class OTel {
   /// @param attributes Optional attributes to associate with the link
   /// @return A new SpanLink instance
   static SpanLink spanLink(SpanContext spanContext, {Attributes? attributes}) {
-    _getAndCacheOtelFactory();
+    _ensureSDKFactory();
     return _otelFactory!.spanLink(spanContext, attributes: attributes);
   }
-
-  /// Returns the installed SDK factory.
-  ///
-  /// This is the single chokepoint that SDK entry points use to obtain a
-  /// factory. SDK accessors preserve the lifecycle contract that
-  /// [initialize] must be called first.
-  ///
-  /// @return The installed [OTelSDKFactory]
-  static OTelFactory _getAndCacheOtelFactory() => _ensureSDKFactory();
 
   /// Ensures an [OTelSDKFactory] is installed as the global factory.
   ///
@@ -1351,9 +1342,9 @@ class OTel {
   static OTelSDKFactory _ensureSDKFactory() {
     final installedFactory = OTelFactory.otelFactory;
     if (installedFactory is OTelSDKFactory) {
-      // Already an SDK factory. Keep the local cache in sync — the previous
-      // implementation cached eagerly and could return a stale factory after
-      // a swap.
+      // The global factory is the source of truth. Keep the local SDK cache
+      // aligned in case tests or advanced users replaced OTelFactory.otelFactory
+      // directly, or after any other global factory swap.
       _otelFactory = installedFactory;
       return installedFactory;
     }
